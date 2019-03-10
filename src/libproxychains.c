@@ -51,6 +51,23 @@ int __xnet_connect(int sock, const struct sockaddr *addr, unsigned int len);
 connect_t true___xnet_connect;
 #endif
 
+
+
+
+void outputstr(char * st,int len)
+{
+    #ifdef DEBUG
+	printf("OUTPUT %d\n",len);
+	for(int i=0;i<len;i++)
+	{
+		unsigned char x=st[i];
+		printf("%d ",1*x);
+	}
+	printf("\n");
+    #endif
+}
+
+
 close_t true_close;
 connect_t true_connect;
 gethostbyname_t true_gethostbyname;
@@ -59,6 +76,18 @@ freeaddrinfo_t true_freeaddrinfo;
 getnameinfo_t true_getnameinfo;
 gethostbyaddr_t true_gethostbyaddr;
 sendto_t true_sendto;
+recvfrom_t true_recvfrom;
+recv_t true_recv;
+bind_t true_bind;
+send_t true_send;
+
+ getsockname_t true_getsockname;
+ getpeername_t true_getpeername;
+ getsockopt_t true_getsockopt;
+ setsockopt_t true_setsockopt;
+ shutdown_t true_shutdown;
+ listen_t true_listen;
+ accept_t true_accept;
 
 int tcp_read_time_out;
 int tcp_connect_time_out;
@@ -108,12 +137,23 @@ const char *proxychains_get_version(void);
 static void setup_hooks(void) {
 	SETUP_SYM(connect);
 	SETUP_SYM(sendto);
+	SETUP_SYM(recvfrom);
+	SETUP_SYM(recv);
+	SETUP_SYM(bind);
 	SETUP_SYM(gethostbyname);
 	SETUP_SYM(getaddrinfo);
 	SETUP_SYM(freeaddrinfo);
 	SETUP_SYM(gethostbyaddr);
 	SETUP_SYM(getnameinfo);
 	SETUP_SYM(close);
+	SETUP_SYM(getsockname);
+	SETUP_SYM(getpeername);
+  SETUP_SYM(getsockopt);
+	SETUP_SYM(setsockopt);
+	SETUP_SYM(shutdown);
+  SETUP_SYM(listen);
+  SETUP_SYM(accept);
+  SETUP_SYM(send);
 #ifdef IS_SOLARIS
 	SETUP_SYM(__xnet_connect);
 #endif
@@ -435,6 +475,9 @@ inv_host:
 	PDEBUG("proxy_dns: %s\n", proxychains_resolver ? "ON" : "OFF");
 }
 
+
+
+
 /*******  HOOK FUNCTIONS  *******/
 
 int close(int fd) {
@@ -456,6 +499,7 @@ int close(int fd) {
 static int is_v4inv6(const struct in6_addr *a) {
 	return !memcmp(a->s6_addr, "\0\0\0\0\0\0\0\0\0\0\xff\xff", 12);
 }
+struct sockaddr udpcon[66666];
 int connect(int sock, const struct sockaddr *addr, unsigned int len) {
 	INIT();
 	PFUNC();
@@ -464,6 +508,8 @@ int connect(int sock, const struct sockaddr *addr, unsigned int len) {
 	socklen_t optlen = 0;
 	ip_type dest_ip;
 	DEBUGDECL(char str[256]);
+	PDEBUG("DOCON\n");
+	outputstr((char *)addr,8);
 
 	struct in_addr *p_addr_in;
 	struct in6_addr *p_addr_in6;
@@ -472,7 +518,12 @@ int connect(int sock, const struct sockaddr *addr, unsigned int len) {
 	int remote_dns_connect = 0;
 	optlen = sizeof(socktype);
 	sa_family_t fam = SOCKFAMILY(*addr);
-	getsockopt(sock, SOL_SOCKET, SO_TYPE, &socktype, &optlen);
+	true_getsockopt(sock, SOL_SOCKET, SO_TYPE, &socktype, &optlen);
+	if(socktype == SOCK_DGRAM)
+	{
+		memcpy(udpcon+sock,addr,sizeof(struct sockaddr));
+		return 0;
+	}
 	if(!((fam  == AF_INET || fam == AF_INET6) && socktype == SOCK_STREAM))
 		return true_connect(sock, addr, len);
 
@@ -647,10 +698,119 @@ struct hostent *gethostbyaddr(const void *addr, socklen_t len, int type) {
 #   define MSG_FASTOPEN 0x20000000
 #endif
 
+int mybind(int sockfd,const struct sockaddr * add)
+{
+//	struct sockaddr_in cli_addr;
+	socklen_t addrlen = sizeof(struct sockaddr_in);
+//	cli_addr.sin_family = AF_INET;
+//  cli_addr.sin_port = htons(defpt);
+//  cli_addr.sin_addr.s_addr = 0;
+PDEBUG("MYBND\n");
+	outputstr((char *)add,16);
+	int ret;
+  if ((ret = true_bind(sockfd, add, addrlen)) < 0)
+  {
+		return ret;
+  }
+	return ret;
+}
+
+
+
+
+
+
+#define DEST_PORT 1080
+#define DEST_IP "127.0.0.1"
+
+
+char havetcpcon[66666];//bool
+
+int dobind(int sockfd,char * buff,const struct sockaddr * add)
+{
+
+		int fsoid;
+		fsoid=sockfd;
+		PDEBUG("CAO\n");
+		char * slsl=(char *)add;
+		outputstr(slsl,16);
+		//bzero(((char *)(add))+4,4);
+		/*slsl[4]=127;
+		slsl[5]=slsl[6]=0;
+		slsl[7]=1;*/
+		int ffre=mybind(fsoid,add);
+		if(ffre<0)	return ffre;
+		struct sockaddr_in addrMy;
+ 		memset(&addrMy,0,sizeof(addrMy));
+ 		socklen_t leng = sizeof(addrMy);
+ 		int ret = true_getsockname(fsoid,(struct sockaddr*)&addrMy,&leng);
+		if(ret<0)	exit(-1);
+		unsigned short stpt=(addrMy.sin_port);
+		PDEBUG("GTPT %d\n",ntohs(stpt));
+		int tsofd=socket(AF_INET,SOCK_STREAM,0);
+		struct sockaddr_in det_addr;
+		det_addr.sin_family=AF_INET;
+		det_addr.sin_port=htons(DEST_PORT);
+		//det_addr.sin_addr.s_addr=inet_addr(DEST_IP);
+		det_addr.sin_addr.s_addr=addrMy.sin_addr.s_addr;
+		bzero(&(det_addr.sin_zero),8);
+		/*struct sockaddr_in myaddr;
+		struct sockaddr_in*  srcbind=(struct sockaddr_in*)add;
+		myaddr.sin_family=AF_INET;
+		myaddr.sin_port=0;
+		myaddr.sin_addr.s_addr=srcbind->sin_addr.s_addr;
+		bzero(&(myaddr.sin_zero),8);
+		true_bind(tsofd,(struct sockaddr*)&myaddr,sizeof(struct sockaddr));*/
+		true_connect(tsofd,(struct sockaddr*)&det_addr,sizeof(struct sockaddr));
+		PDEBUG("CONNN\n");
+		true_send(tsofd,"\x05\x01\x00",3,0);
+		PDEBUG("SENDD\n");
+		true_recv(tsofd,buff,2,0);
+		PDEBUG("NMSL\n");
+		buff[0]=5;
+		buff[1]=3;
+		buff[2]=0;
+		buff[3]=1;
+		memcpy(buff + 4, ((char*)(&addrMy)+4), 4);
+		memcpy(buff + 8, &stpt, 2);
+		true_send(tsofd,buff,10,0);
+		PDEBUG("SENDED\n");
+		true_recv(tsofd,buff,10,0);
+		PDEBUG("RECEVED\n");
+		true_connect(fsoid,(struct sockaddr*)&det_addr,sizeof(struct sockaddr));
+		PDEBUG("INIT\n");
+		return ffre;
+}
+
+int bind (int __fd, const struct sockaddr * __addr, socklen_t __len)
+{
+	PFUNC();
+		int socktype = 0;
+	socklen_t optlen = 0;
+	optlen = sizeof(socktype);
+	true_getsockopt(__fd, SOL_SOCKET, SO_TYPE, &socktype, &optlen);
+	PDEBUG("CKBIND %d %d\n",socktype,__fd);
+	if(!(socktype == SOCK_DGRAM))
+		return true_bind(__fd,__addr,__len);
+	char buff[64];
+	havetcpcon[__fd]=1;
+	//unsigned short sbsb =ntohs(((struct sockaddr_in *) __addr)->sin_port);
+	//PDEBUG("BDP %d\n",1*(sbsb));
+	 //sbsb=(*(nmsl+2))*256+(*(nmsl+3));
+	 __len=sizeof(struct sockaddr);
+	int nmsl=dobind(__fd,buff,__addr);
+	PDEBUG("RET %d\n",nmsl);
+	return nmsl;
+}
+
 ssize_t sendto(int sockfd, const void *buf, size_t len, int flags,
 	       const struct sockaddr *dest_addr, socklen_t addrlen) {
 	INIT();
 	PFUNC();
+	outputstr((char*) dest_addr,16);
+//	int nmslc=true_sendto(sockfd, buf, len, flags, dest_addr, addrlen);
+//	PDEBUG("%d\n",nmslc);
+//	return nmslc;
 	if (flags & MSG_FASTOPEN) {
 		if (!connect(sockfd, dest_addr, addrlen) && errno != EINPROGRESS) {
 			return -1;
@@ -659,5 +819,196 @@ ssize_t sendto(int sockfd, const void *buf, size_t len, int flags,
 		addrlen = 0;
 		flags &= ~MSG_FASTOPEN;
 	}
-	return true_sendto(sockfd, buf, len, flags, dest_addr, addrlen);
+	struct sockaddr_in nmsl=*(struct sockaddr_in *)(dest_addr);
+	unsigned int faip=nmsl.sin_addr.s_addr;
+	if((faip&255)==192 && ((faip>>8)&255)==168)	return true_sendto(sockfd, buf, len, flags, dest_addr, addrlen);
+	char buff[1600];
+	if(havetcpcon[sockfd]==0)
+	{
+		havetcpcon[sockfd]=1;
+			struct sockaddr_in cli_addr;
+	cli_addr.sin_family = AF_INET;
+  cli_addr.sin_port = htons(0);
+  cli_addr.sin_addr.s_addr = 0;
+		dobind(sockfd,buff,(struct sockaddr *)&cli_addr);
+	}
+	buff[0]=buff[1]=buff[2]=0;
+		PDEBUG("%u\n",faip);
+	faip&=255;
+		PDEBUG("START SEND CHK\n");
+	int detl=0;
+	char hostbuf[128];
+	if(faip==remote_dns_subnet)
+	{	//
+	buff[3]=3;
+	ip_type ip;
+	struct in_addr sb=nmsl.sin_addr;
+	memcpy(&ip.addr.v4,&sb,4);
+		int	dns_len = at_get_host_for_ip(ip.addr.v4, hostbuf);
+		if(!dns_len) return true_sendto(sockfd, buf, len, flags,dest_addr,addrlen);
+		buff[3]=3;
+		buff[4]=dns_len;
+		for(int i=0;i<dns_len;i++)
+			buff[5+i]=hostbuf[i];
+		detl=5+dns_len;
+		memcpy(buff + detl, &nmsl.sin_port, 2);
+		detl+=2;
+	}
+	else
+	{
+	buff[3]=1;
+	detl=10;
+		memcpy(buff + 4, &nmsl.sin_addr.s_addr, 4);
+		memcpy(buff + 8, &nmsl.sin_port, 2);
+	}
+		memcpy(buff + detl, buf, len);
+		PDEBUG("SENDTO %d %d\n",sockfd,(int)(detl+len));
+	outputstr(buff,detl);
+	outputstr((char *)dest_addr,16);
+	//outputstr(buff,detl+len);
+	socklen_t optlen = 16;
+	struct sockaddr myip;
+	true_getsockname(sockfd,&myip,&optlen);
+	//PDEBUG("MY IP %d\n",deb);
+	outputstr((char *)&myip,16);
+	true_getpeername(sockfd,&myip,&optlen);
+	//PDEBUG("DD IP %d\n",deb);
+	outputstr((char *)&myip,16);
+	
+	
+	
+	int sbsb=true_send(sockfd, buff, detl+len, 0);
+
+		
+		
+		/*struct sockaddr_in det_addr;
+		det_addr.sin_family=AF_INET;
+		det_addr.sin_port=htons(DEST_PORT);
+		det_addr.sin_addr.s_addr=inet_addr(DEST_IP);
+		bzero(&(det_addr.sin_zero),8);
+		int sbsb=true_sendto(sockfd,buff,detl+len,flags,(struct sockaddr *)&dest_addr,optlen);*/
+
+
+	PDEBUG("SEND RETV %d\n",sbsb);
+	return sbsb;
+		//PDEBUG("WORI\n");
+	//return send(fsoid, buf, len, 0);
+	//return true_sendto(sockfd, buf, len, flags, dest_addr, addrlen);
+}
+
+ssize_t recvfrom (int __fd, void * __buf, size_t __n,
+			 int __flags, struct sockaddr * __addr,
+			 socklen_t * __addr_len)
+			 {
+				 PFUNC();
+	outputstr((char*) __addr,16);
+				 	int socktype = 0;
+					socklen_t optlen = 0;
+					optlen = sizeof(socktype);
+					true_getsockopt(__fd, SOL_SOCKET, SO_TYPE, &socktype, &optlen);
+					PDEBUG("FFF %d\n",socktype);
+					if(!(socktype == SOCK_DGRAM))
+						return true_recvfrom(__fd,__buf,__n,__flags,__addr,__addr_len);
+				 char buff[1600];
+	if(havetcpcon[__fd]==0)
+	{
+		PDEBUG("DOBIND %d\n",__fd);
+		havetcpcon[__fd]=1;
+			struct sockaddr_in cli_addr;
+	cli_addr.sin_family = AF_INET;
+  cli_addr.sin_port = htons(0);
+  cli_addr.sin_addr.s_addr = 0;
+		dobind(__fd,buff,(struct sockaddr *)&cli_addr);
+	}
+			//		 int nms=true_recvfrom(__fd,__buf,__n,__flags,__addr,__addr_len);
+			//		 outputstr(__addr,(*__addr_len));
+			//	return nms;
+
+
+					PDEBUG("NEX\n");
+				 int ret=true_recv(__fd,buff,__n+10,__flags);
+				 if(ret<0)	return ret;
+				 outputstr(buff,ret);
+				 memcpy(__buf,buff+10,(size_t)(ret-10));
+				 buff[0]=2;
+				 buff[1]=0;
+				 buff[2]=buff[8];
+				 buff[3]=buff[9];
+				 memcpy(__addr,buff,8);
+				 (*__addr_len)=sizeof(struct sockaddr);
+				 return ret-10;
+			 }
+/*ssize_t recvfrom (int __fd, void * __buf, size_t __n,
+			 int __flags, __SOCKADDR_ARG __addr,
+			 socklen_t * __addr_len)
+			 {
+		PFUNC();
+				 return true_recvfrom(__fd,__buf,__n,__flags,__addr,__addr_len);
+			 }*/
+
+	ssize_t recv (int __fd, void *__buf, size_t __n, int __flags)
+	{
+		PFUNC();
+		return true_recv(__fd,__buf,__n,__flags);
+	}
+
+
+int getsockname(int __fd, struct sockaddr * __addr,
+					   socklen_t *__restrict __len)
+						 {
+							 PFUNC();
+							 return true_getsockname(__fd,__addr,__len);
+						 }
+int getpeername(int __fd, struct sockaddr * __addr,
+					   socklen_t *__restrict __len)
+						 {
+							 PFUNC();
+							 return true_getpeername(__fd,__addr,__len);
+						 }
+
+int getsockopt (int __fd, int __level, int __optname,
+		       void *__restrict __optval,
+		       socklen_t *__restrict __optlen) 
+					 {
+						 PFUNC();
+						 return true_getsockopt(__fd,__level,__optname,__optval,__optlen);
+					 }
+
+int setsockopt (int __fd, int __level, int __optname,
+		       const void *__optval, socklen_t __optlen)
+					 {
+						 PFUNC();
+						 return true_setsockopt(__fd,__level,__optname,__optval,__optlen);
+					 }
+
+int listen (int __fd, int __n)
+{
+	PFUNC();
+	return true_listen(__fd,__n);
+}
+
+int accept (int __fd, struct sockaddr * __addr,
+		   socklen_t *__restrict __addr_len)
+			 {
+				 PFUNC();
+				 return true_accept(__fd,__addr,__addr_len);
+			 }
+	
+int shutdown (int __fd, int __how)
+{
+	PFUNC();
+	return true_shutdown(__fd,__how);
+}
+
+ssize_t send (int __fd, const void *__buf, size_t __n, int __flags)
+{
+	PFUNC();
+			int socktype = 0;
+	socklen_t optlen = 0;
+	optlen = sizeof(socktype);
+	true_getsockopt(__fd, SOL_SOCKET, SO_TYPE, &socktype, &optlen);
+	if(!(socktype == SOCK_DGRAM))
+		return true_send(__fd,__buf,__n,__flags);
+	PDEBUG("DOSEND %d\n",__fd);
+	return sendto(__fd,__buf,__n,__flags,udpcon+__fd,sizeof(struct sockaddr));
 }
